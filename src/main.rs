@@ -1,3 +1,4 @@
+use log::{debug, info};
 use std::time::Duration;
 use std::{path::PathBuf, process::Command, time::Instant};
 
@@ -32,8 +33,8 @@ struct Args {
 fn extract_changed(repo: &Repository, from_commit: &str) -> Result<Vec<PathBuf>> {
     let current_commit = repo.head()?.peel_to_commit()?.id();
 
-    println!("Latest processed commit: {from_commit}");
-    println!("Current commit: {current_commit}");
+    info!("Latest processed commit: {from_commit}");
+    info!("Current commit: {current_commit}");
 
     let old_tree = repo.find_commit(Oid::from_str(from_commit)?)?.tree()?;
     let current_tree = repo.find_commit(current_commit)?.tree()?;
@@ -44,7 +45,6 @@ fn extract_changed(repo: &Repository, from_commit: &str) -> Result<Vec<PathBuf>>
 
     Ok(diff
         .deltas()
-        .into_iter()
         .filter(|delta| {
             // Only care about changed files inside the submissions directory
             let new_file_path = delta.new_file().path().unwrap();
@@ -61,10 +61,8 @@ fn list_paths(root: &std::path::Path) -> Result<Vec<PathBuf>> {
         let entry = entry?;
         if entry.path().is_file() {
             result.push(entry.path());
-        } else {
-            if let Ok(sub_dir_res) = list_paths(entry.path().as_path()) {
-                result.extend(sub_dir_res)
-            }
+        } else if let Ok(sub_dir_res) = list_paths(entry.path().as_path()) {
+            result.extend(sub_dir_res)
         }
     }
 
@@ -104,13 +102,13 @@ impl ExecResult {
 }
 
 fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
-    println!("Comparing output {output:?} vs {expected_output:?}");
+    debug!("Comparing output {output:?} vs {expected_output:?}");
     let mut output = File::open(output)?;
     let mut expected_output = File::open(expected_output)?;
     let output_len = output.metadata()?.len();
     let expected_output_len = expected_output.metadata()?.len();
-    if output_len != output_len {
-        println!("Output size is different: expected {expected_output_len}, Got {output_len}");
+    if expected_output_len != output_len {
+        debug!("Output size is different: expected {expected_output_len}, Got {output_len}");
         return Ok(Verdict::Wa);
     }
 
@@ -152,9 +150,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
 
     match res.wait() {
         Ok(status) => {
-            println!(
-                "Finished compilation of the target: {output_path:?} with exit code: {status}"
-            );
+            info!("Finished compilation of the target: {output_path:?} with exit code: {status}");
             if let Some(code) = status.code() {
                 if code != 0 {
                     return Err(anyhow::anyhow!(
@@ -171,7 +167,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut output_file = tmp_dir.path().to_path_buf();
     output_file.push("output.txt");
 
-    println!(
+    info!(
         "Copying file from: {:?} to {:?}",
         context.input_file, input_file
     );
@@ -188,7 +184,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
 
         match cmd.wait() {
             Ok(result) => {
-                println!(
+                info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
                 );
@@ -206,12 +202,12 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
         }
 
         let elapsed = Instant::now() - start_time;
-        println!("Execution #{i} finished in: {elapsed:?}");
+        debug!("Execution #{i} finished in: {elapsed:?}");
         times.push(elapsed);
 
         let verdict = compute_verdict(&output_file, context.expected_output)?;
         if !matches!(verdict, Verdict::Ac) {
-            println!("Submission is not correct, aborting further runs");
+            debug!("Submission is not correct, aborting further runs");
             return Ok(ExecResult {
                 verdict: Verdict::Wa,
                 times,
@@ -219,10 +215,10 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
         }
     }
 
-    return Ok(ExecResult {
+    Ok(ExecResult {
         verdict: Verdict::Ac,
         times,
-    });
+    })
 }
 
 fn run_java(context: &RunContext) -> Result<ExecResult> {
@@ -240,7 +236,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
 
     match res.wait() {
         Ok(status) => {
-            println!("Finished compilation of the target: {src_path:?} with exit code: {status}");
+            debug!("Finished compilation of the target: {src_path:?} with exit code: {status}");
             if let Some(code) = status.code() {
                 if code != 0 {
                     return Err(anyhow::anyhow!(
@@ -260,7 +256,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     let mut main_class = tmp_dir.path().to_path_buf();
     main_class.push("Main");
 
-    println!(
+    info!(
         "Copying file from: {:?} to {:?}",
         context.input_file, input_file
     );
@@ -278,7 +274,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
 
         match cmd.wait() {
             Ok(result) => {
-                println!(
+                info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
                 );
@@ -296,12 +292,12 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
         }
 
         let elapsed = Instant::now() - start_time;
-        println!("Execution #{i} finished in: {elapsed:?}");
+        debug!("Execution #{i} finished in: {elapsed:?}");
         times.push(elapsed);
 
         let verdict = compute_verdict(&output_file, context.expected_output)?;
         if !matches!(verdict, Verdict::Ac) {
-            println!("Submission is not correct, aborting further runs");
+            debug!("Submission is not correct, aborting further runs");
             return Ok(ExecResult {
                 verdict: Verdict::Wa,
                 times,
@@ -309,11 +305,12 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
         }
     }
 
-    return Ok(ExecResult {
+    Ok(ExecResult {
         verdict: Verdict::Ac,
         times,
-    });
+    })
 }
+
 fn run_file(context: &RunContext) -> Result<ExecResult> {
     //- [x] deduce language from extension
     //- [ ] Prepare run directory
@@ -367,6 +364,8 @@ fn extract_user(path: &Path) -> Result<String> {
 fn main() {
     let args = Args::parse();
 
+    env_logger::init();
+
     let repo = match Repository::init(args.repository) {
         Ok(repo) => repo,
         Err(e) => panic!("failed to init: {}", e),
@@ -377,7 +376,7 @@ fn main() {
     let changed_paths = match std::fs::read_to_string(PathBuf::from(&args.commit_file)) {
         Ok(content) => {
             let latest_commit = content.trim();
-            extract_changed(&repo, &latest_commit)
+            extract_changed(&repo, latest_commit)
         }
         Err(_) => {
             let mut root = repo.workdir().unwrap().to_owned();
@@ -387,7 +386,7 @@ fn main() {
     };
 
     for path in changed_paths.expect("Should extract diffs") {
-        println!("Changed path: {path:?}");
+        debug!("Changed path: {path:?}");
         let user = extract_user(&path).expect("should extract user");
         let run_context = RunContext {
             input_file: &PathBuf::from(&args.input_file),
@@ -398,10 +397,10 @@ fn main() {
         };
         match run_file(&run_context) {
             Ok(exec_result) => {
-                println!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median())
+                info!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median())
             }
             Err(e) => {
-                println!("Failed {e:?}")
+                info!("Failed {e:?}")
             }
         };
     }
