@@ -27,6 +27,10 @@ struct Args {
     // Location of the expected answer file
     #[arg(short, long)]
     expected_output: String,
+
+    // Location where to write the results
+    #[arg(short, long)]
+    results_file: String,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -311,12 +315,152 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     })
 }
 
+fn run_python(context: &RunContext) -> Result<ExecResult> {
+    let tmp_dir = tempfile::tempdir()?;
+
+    let mut src_path = tmp_dir.path().to_path_buf();
+    src_path.push("main.py");
+
+    // Copy the source file to the compilation directory
+    std::fs::copy(context.abs_solution(), &src_path)?;
+
+    let mut input_file = tmp_dir.path().to_path_buf();
+    input_file.push("input.txt");
+
+    let mut output_file = tmp_dir.path().to_path_buf();
+    output_file.push("output.txt");
+
+    info!(
+        "Copying file from: {:?} to {:?}",
+        context.input_file, input_file
+    );
+
+    // Copy the input file to the same directory as the executable
+    std::fs::copy(context.input_file, input_file)?;
+
+    let mut times = vec![];
+    for i in 0..10 {
+        let start_time = Instant::now();
+        let mut cmd = Command::new("python3")
+            .args(vec!["main.py"])
+            .current_dir(&tmp_dir)
+            .spawn()?;
+
+        match cmd.wait() {
+            Ok(result) => {
+                info!(
+                    "Finished execution of the solution with status: {:?}",
+                    result.code()
+                );
+                if let Some(code) = result.code() {
+                    if code != 0 {
+                        return Err(anyhow::anyhow!(
+                            "Failed to run the solution file: none-zero exit code"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
+            }
+        }
+
+        let elapsed = Instant::now() - start_time;
+        debug!("Execution #{i} finished in: {elapsed:?}");
+        times.push(elapsed);
+
+        let verdict = compute_verdict(&output_file, context.expected_output)?;
+        if !matches!(verdict, Verdict::Ac) {
+            debug!("Submission is not correct, aborting further runs");
+            return Ok(ExecResult {
+                verdict: Verdict::Wa,
+                times,
+            });
+        }
+    }
+
+    Ok(ExecResult {
+        verdict: Verdict::Ac,
+        times,
+    })
+}
+
+fn run_node(context: &RunContext) -> Result<ExecResult> {
+    let tmp_dir = tempfile::tempdir()?;
+
+    let mut src_path = tmp_dir.path().to_path_buf();
+    src_path.push("main.js");
+
+    // Copy the source file to the compilation directory
+    std::fs::copy(context.abs_solution(), &src_path)?;
+
+    let mut input_file = tmp_dir.path().to_path_buf();
+    input_file.push("input.txt");
+
+    let mut output_file = tmp_dir.path().to_path_buf();
+    output_file.push("output.txt");
+
+    info!(
+        "Copying file from: {:?} to {:?}",
+        context.input_file, input_file
+    );
+
+    // Copy the input file to the same directory as the executable
+    std::fs::copy(context.input_file, input_file)?;
+
+    let mut times = vec![];
+    for i in 0..10 {
+        let start_time = Instant::now();
+        let mut cmd = Command::new("node")
+            .args(vec!["main.js"])
+            .current_dir(&tmp_dir)
+            .spawn()?;
+
+        match cmd.wait() {
+            Ok(result) => {
+                info!(
+                    "Finished execution of the solution with status: {:?}",
+                    result.code()
+                );
+                if let Some(code) = result.code() {
+                    if code != 0 {
+                        return Err(anyhow::anyhow!(
+                            "Failed to run the solution file: none-zero exit code"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
+            }
+        }
+
+        let elapsed = Instant::now() - start_time;
+        debug!("Execution #{i} finished in: {elapsed:?}");
+        times.push(elapsed);
+
+        let verdict = compute_verdict(&output_file, context.expected_output)?;
+        if !matches!(verdict, Verdict::Ac) {
+            debug!("Submission is not correct, aborting further runs");
+            return Ok(ExecResult {
+                verdict: Verdict::Wa,
+                times,
+            });
+        }
+    }
+
+    Ok(ExecResult {
+        verdict: Verdict::Ac,
+        times,
+    })
+}
+
 fn run_file(context: &RunContext) -> Result<ExecResult> {
     //- [x] deduce language from extension
-    //- [ ] Prepare run directory
-    //- [ ] Compile (if needed)
-    //- [ ] copy binary and input to run directory
-    //- [ ] run and compute time
+    //- [x] Prepare run directory
+    //- [x] Compile (if needed)
+    //- [x] copy binary and input to run directory
+    //- [x] run and compute time
     let extension = context
         .solution_file
         .extension()
@@ -327,6 +471,8 @@ fn run_file(context: &RunContext) -> Result<ExecResult> {
     match extension.to_str().unwrap() {
         "cpp" => run_cpp(context),
         "java" => run_java(context),
+        "py" => run_python(context),
+        "js" => run_node(context),
         _ => Ok(ExecResult {
             verdict: Verdict::UnknownExt,
             times: vec![],
@@ -395,6 +541,7 @@ fn main() {
             solution_file: &path,
             user: user.as_ref(),
         };
+
         match run_file(&run_context) {
             Ok(exec_result) => {
                 info!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median())
