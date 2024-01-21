@@ -8,7 +8,7 @@ use anyhow::Result;
 use clap::Parser;
 use git2::{DiffOptions, Oid, Repository};
 use std::fs::{File, OpenOptions};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 /// Simple program to greet a person
@@ -118,6 +118,7 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
         return Ok(Verdict::Wa);
     }
 
+    // TODO: depending on the size of the input, we might want to make these buffers larger.
     let mut b1 = [0u8; 4096];
     let mut b2 = [0u8; 4096];
 
@@ -565,12 +566,26 @@ fn load_existing_stats(res_file: &str) -> Result<Vec<Record>> {
     Ok(values)
 }
 
+fn write_latest_commit(repo: &Repository, args: &Args) -> Result<()> {
+    let mut commit_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&args.commit_file)?;
+
+    let current_commit = repo.head()?.peel_to_commit()?.id();
+    info!("Writing latest commit: {current_commit:?}");
+    commit_file.write_all(format!("{current_commit:?}").as_bytes())?;
+    commit_file.sync_all()?;
+    Ok(())
+}
+
 fn main() {
     let args = Args::parse();
 
     env_logger::init();
 
-    let repo = match Repository::init(args.repository) {
+    let repo = match Repository::init(&args.repository) {
         Ok(repo) => repo,
         Err(e) => panic!("failed to init: {}", e),
     };
@@ -654,4 +669,6 @@ fn main() {
         writer.serialize(rec).expect("should write csv");
     }
     writer.flush().expect("should flush");
+
+    write_latest_commit(&repo, &args).expect("should write commit data");
 }
