@@ -5,10 +5,10 @@ After=network.target
 
 [Service]
 Type=oneshot
-# TODO - replace with actual repository name
-WorkingDirectory=/home/blablarun
-ExecStartPre=/usr/bin/git pull
-ExecStart=/usr/bin/blarun --repository /home/blablarun --commit-file /home/commit_file --input-file /home/input.txt --expected-output /home/output.txt
+WorkingDirectory=/home/blarun
+# ExecStartPre=/usr/bin/git pull
+Environment="RUST_LOG=info"
+ExecStart=/usr/local/bin/blarun --repository /home/repo --commit-file /home/blarun-data/commit_file --input-file /home/blarun-data/input.txt --expected-output /home/blarun-data/output.txt --results-file /home/blarun-data/main.csv --timeout-sec 10
 
 [Install]
 WantedBy=multi-user.target
