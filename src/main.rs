@@ -3,6 +3,7 @@ use serde_with::{serde_as, DurationMilliSeconds};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use std::{path::PathBuf, process::Command, time::Instant};
+use wait_timeout::ChildExt;
 
 use anyhow::Result;
 use clap::Parser;
@@ -33,6 +34,10 @@ struct Args {
     // Location where to write the results
     #[arg(long)]
     results_file: String,
+
+    // How long to let the submission run before declaring it slow
+    #[arg(long)]
+    timeout_sec: u64,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -79,6 +84,7 @@ fn list_paths(root: &std::path::Path) -> Result<Vec<PathBuf>> {
 enum Verdict {
     Ac,
     Wa,
+    Tle,
     UnknownExt,
 }
 
@@ -185,12 +191,12 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut cmd = Command::new(output_path.to_str().unwrap())
+        let mut child = Command::new(output_path.to_str().unwrap())
             .current_dir(&tmp_dir)
             .spawn()?;
 
-        match cmd.wait() {
-            Ok(result) => {
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
                 info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
@@ -202,6 +208,16 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
                         ));
                     }
                 }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
             }
             Err(e) => {
                 return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
@@ -274,13 +290,13 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut cmd = Command::new("java")
+        let mut child = Command::new("java")
             .args(vec!["Main"])
             .current_dir(&tmp_dir)
             .spawn()?;
 
-        match cmd.wait() {
-            Ok(result) => {
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
                 info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
@@ -292,6 +308,16 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
                         ));
                     }
                 }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
             }
             Err(e) => {
                 return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
@@ -344,13 +370,13 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut cmd = Command::new("python3")
+        let mut child = Command::new("python3")
             .args(vec!["main.py"])
             .current_dir(&tmp_dir)
             .spawn()?;
 
-        match cmd.wait() {
-            Ok(result) => {
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
                 info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
@@ -363,6 +389,16 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
                     }
                 }
             }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
+            }
             Err(e) => {
                 return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
             }
@@ -373,6 +409,7 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
         times.push(elapsed);
 
         let verdict = compute_verdict(&output_file, context.expected_output)?;
+        // Exit early
         if !matches!(verdict, Verdict::Ac) {
             debug!("Submission is not correct, aborting further runs");
             return Ok(ExecResult {
@@ -414,13 +451,13 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut cmd = Command::new("node")
+        let mut child = Command::new("node")
             .args(vec!["main.js"])
             .current_dir(&tmp_dir)
             .spawn()?;
 
-        match cmd.wait() {
-            Ok(result) => {
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
                 info!(
                     "Finished execution of the solution with status: {:?}",
                     result.code()
@@ -432,6 +469,16 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
                         ));
                     }
                 }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
             }
             Err(e) => {
                 return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
@@ -496,6 +543,7 @@ struct RunContext<'a> {
     input_file: &'a Path,
     expected_output: &'a Path,
     solution_file: &'a Path,
+    timeout: Duration,
     root: &'a Path,
     user: &'a str,
 }
@@ -623,17 +671,20 @@ fn main() {
             root: repo.workdir().unwrap(),
             solution_file: &path,
             user: user.as_ref(),
+            timeout: Duration::from_secs(args.timeout_sec),
         };
 
         match run_file(&run_context) {
             Ok(exec_result) => {
                 info!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median());
-                new_records.push(Record {
-                    username: run_context.user.to_owned(),
-                    median: exec_result.median(),
-                    avg: exec_result.avg_time(),
-                    lang: extract_language(&run_context),
-                })
+                if matches!(exec_result.verdict, Verdict::Ac) {
+                    new_records.push(Record {
+                        username: run_context.user.to_owned(),
+                        median: exec_result.median(),
+                        avg: exec_result.avg_time(),
+                        lang: extract_language(&run_context),
+                    })
+                }
             }
             Err(e) => {
                 info!("Failed {e:?}")

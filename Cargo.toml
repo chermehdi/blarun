@@ -15,4 +15,5 @@ log = "0.4.20"
 tempfile = "3.9.0"
 serde = { version = "^1", features = ["derive"] }
 serde_with = "3.5.0"
+wait-timeout = "0.2.0"
 
