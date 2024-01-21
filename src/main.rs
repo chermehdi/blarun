@@ -1,11 +1,13 @@
 use log::{debug, info};
+use serde_with::{serde_as, DurationMilliSeconds};
+use std::collections::BTreeMap;
 use std::time::Duration;
 use std::{path::PathBuf, process::Command, time::Instant};
 
 use anyhow::Result;
 use clap::Parser;
 use git2::{DiffOptions, Oid, Repository};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::Path;
 
@@ -17,19 +19,19 @@ struct Args {
     repository: String,
 
     // File where to write the latest processed commit
-    #[arg(short, long)]
+    #[arg(long)]
     commit_file: String,
 
     // The input file to be read by the solution
-    #[arg(short, long)]
+    #[arg(long)]
     input_file: String,
 
     // Location of the expected answer file
-    #[arg(short, long)]
+    #[arg(long)]
     expected_output: String,
 
     // Location where to write the results
-    #[arg(short, long)]
+    #[arg(long)]
     results_file: String,
 }
 
@@ -455,6 +457,15 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
     })
 }
 
+fn extract_language(context: &RunContext) -> String {
+    context
+        .solution_file
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string()
+}
+
 fn run_file(context: &RunContext) -> Result<ExecResult> {
     //- [x] deduce language from extension
     //- [x] Prepare run directory
@@ -496,6 +507,37 @@ impl<'a> RunContext<'a> {
     }
 }
 
+#[serde_as]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+struct Record {
+    username: String,
+    #[serde_as(as = "DurationMilliSeconds<String>")]
+    avg: Duration,
+
+    #[serde_as(as = "DurationMilliSeconds<String>")]
+    median: Duration,
+
+    lang: String,
+}
+
+impl PartialOrd for Record {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Record {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if !matches!(self.avg.cmp(&other.avg), std::cmp::Ordering::Equal) {
+            return self.avg.cmp(&other.avg);
+        }
+        if !matches!(self.median.cmp(&other.median), std::cmp::Ordering::Equal) {
+            return self.median.cmp(&other.median);
+        }
+        self.username.cmp(&other.username)
+    }
+}
+
 fn extract_user(path: &Path) -> Result<String> {
     Ok(path
         .parent()
@@ -507,6 +549,22 @@ fn extract_user(path: &Path) -> Result<String> {
         .to_owned())
 }
 
+fn load_existing_stats(res_file: &str) -> Result<Vec<Record>> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(res_file)?;
+    let mut rdr = csv::Reader::from_reader(file);
+    let mut values = vec![];
+    for record in rdr.deserialize() {
+        let record = record?;
+        values.push(record)
+    }
+    values.sort();
+    Ok(values)
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -516,6 +574,15 @@ fn main() {
         Ok(repo) => repo,
         Err(e) => panic!("failed to init: {}", e),
     };
+
+    debug!("Results file is: {}", args.results_file);
+    let mut current_records =
+        load_existing_stats(&args.results_file).expect("should load existing records");
+
+    let mut records = BTreeMap::new();
+    for record in current_records.iter() {
+        records.insert(record.username.clone(), record.clone());
+    }
 
     // Ensure that if there is an existing commit file, let's use the commit as base for computing
     // the diff, otherwise, the diff should include all the files under the submissions directory.
@@ -531,6 +598,7 @@ fn main() {
         }
     };
 
+    let mut new_records = vec![];
     for path in changed_paths.expect("Should extract diffs") {
         debug!("Changed path: {path:?}");
         let user = extract_user(&path).expect("should extract user");
@@ -544,11 +612,46 @@ fn main() {
 
         match run_file(&run_context) {
             Ok(exec_result) => {
-                info!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median())
+                info!("Submission from user: {} has finished with verdict: {:?} and with an AVG execution time of: {:?} and MED of {:?}", run_context.user, exec_result.verdict, exec_result.avg_time(), exec_result.median());
+                new_records.push(Record {
+                    username: run_context.user.to_owned(),
+                    median: exec_result.median(),
+                    avg: exec_result.avg_time(),
+                    lang: extract_language(&run_context),
+                })
             }
             Err(e) => {
                 info!("Failed {e:?}")
             }
         };
     }
+
+    for rec in new_records.into_iter() {
+        if records.contains_key(&rec.username) {
+            let existing_record = records.get(&rec.username).unwrap();
+            if matches!(existing_record.cmp(&rec), std::cmp::Ordering::Greater) {
+                // Update if the new time is better than the old time.
+                records.insert(rec.username.clone(), rec);
+            }
+        } else {
+            records.insert(rec.username.clone(), rec);
+        }
+    }
+
+    let updated_records = records.values().collect::<Vec<_>>();
+
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .read(true)
+        .open(&args.results_file)
+        .expect("should open results file");
+
+    current_records.sort();
+    let mut writer = csv::Writer::from_writer(file);
+    for rec in updated_records {
+        writer.serialize(rec).expect("should write csv");
+    }
+    writer.flush().expect("should flush");
 }
