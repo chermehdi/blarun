@@ -1,0 +1,9 @@
+[Unit]
+Description=Pull submissions repository and invoke blarun binary hourly 
+
+[Timer]
+OnCalendar=*:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
