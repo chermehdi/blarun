@@ -38,6 +38,10 @@ struct Args {
     // How long to let the submission run before declaring it slow
     #[arg(long)]
     timeout_sec: u64,
+
+    // Jailer solution location: (nsjail)
+    #[arg(long)]
+    jailer: String,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -191,7 +195,13 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut child = Command::new(output_path.to_str().unwrap())
+        let mut child = Command::new(&context.jailer)
+            .args(vec![
+                "--config",
+                "/etc/blarun/jailer.cfg",
+                "--",
+                output_path.to_str().unwrap(),
+            ])
             .current_dir(&tmp_dir)
             .spawn()?;
 
@@ -515,11 +525,6 @@ fn extract_language(context: &RunContext) -> String {
 }
 
 fn run_file(context: &RunContext) -> Result<ExecResult> {
-    //- [x] deduce language from extension
-    //- [x] Prepare run directory
-    //- [x] Compile (if needed)
-    //- [x] copy binary and input to run directory
-    //- [x] run and compute time
     let extension = context
         .solution_file
         .extension()
@@ -543,6 +548,7 @@ struct RunContext<'a> {
     input_file: &'a Path,
     expected_output: &'a Path,
     solution_file: &'a Path,
+    jailer: String,
     timeout: Duration,
     root: &'a Path,
     user: &'a str,
@@ -672,6 +678,7 @@ fn main() {
             solution_file: &path,
             user: user.as_ref(),
             timeout: Duration::from_secs(args.timeout_sec),
+            jailer: args.jailer.clone(),
         };
 
         match run_file(&run_context) {
