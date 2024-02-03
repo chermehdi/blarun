@@ -201,6 +201,8 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
             .args(vec![
                 "--config",
                 "/etc/blarun/jailer.cfg",
+                "--chroot",
+                "/",
                 "--",
                 output_path.to_str().unwrap(),
             ])
