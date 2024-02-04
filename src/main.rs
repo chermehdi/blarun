@@ -151,7 +151,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut output_path = tmp_dir.clone();
     output_path.push("sol");
 
-    let mut res = Command::new("g++")
+    let mut res = Command::new("/usr/bin/g++")
         .args(vec![
             "-Wall",
             "--std=c++17",
