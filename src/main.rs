@@ -1,7 +1,6 @@
 use log::{debug, info};
 use serde_with::{serde_as, DurationMilliSeconds};
 use std::collections::BTreeMap;
-use std::process::Stdio;
 use std::time::Duration;
 use std::{path::PathBuf, process::Command, time::Instant};
 use wait_timeout::ChildExt;
@@ -39,10 +38,6 @@ struct Args {
     // How long to let the submission run before declaring it slow
     #[arg(long)]
     timeout_sec: u64,
-
-    // Jailer solution location: (nsjail)
-    #[arg(long)]
-    jailer: String,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -197,15 +192,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut child = Command::new(&context.jailer)
-            .args(vec![
-                "--config",
-                "/etc/blarun/jailer.cfg",
-                "--chroot",
-                "/",
-                "--",
-                output_path.to_str().unwrap(),
-            ])
+        let mut child = Command::new(output_path.to_str().unwrap())
             .current_dir(&tmp_dir)
             .spawn()?;
 
@@ -552,7 +539,6 @@ struct RunContext<'a> {
     input_file: &'a Path,
     expected_output: &'a Path,
     solution_file: &'a Path,
-    jailer: String,
     timeout: Duration,
     root: &'a Path,
     user: &'a str,
@@ -682,7 +668,6 @@ fn main() {
             solution_file: &path,
             user: user.as_ref(),
             timeout: Duration::from_secs(args.timeout_sec),
-            jailer: args.jailer.clone(),
         };
 
         match run_file(&run_context) {
