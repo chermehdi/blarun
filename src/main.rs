@@ -185,12 +185,11 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     output_file.push("output.txt");
 
     info!(
-        "Copying file from: {:?} to {:?}",
+        "Symlinking file from: {:?} to {:?}",
         context.input_file, input_file
     );
 
-    // Copy the input file to the same directory as the executable
-    std::fs::copy(context.input_file, input_file)?;
+    std::os::unix::fs::symlink(context.input_file, &input_file)?;
 
     let mut times = vec![];
     for i in 0..10 {
@@ -290,12 +289,11 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     main_class.push("Main");
 
     info!(
-        "Copying file from: {:?} to {:?}",
+        "Symlinking file from: {:?} to {:?}",
         context.input_file, input_file
     );
 
-    // Copy the input file to the same directory as the executable
-    std::fs::copy(context.input_file, input_file)?;
+    std::os::unix::fs::symlink(context.input_file, &input_file)?;
 
     let mut times = vec![];
     for i in 0..10 {
@@ -370,12 +368,11 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
     output_file.push("output.txt");
 
     info!(
-        "Copying file from: {:?} to {:?}",
+        "Symlinking file from: {:?} to {:?}",
         context.input_file, input_file
     );
 
-    // Copy the input file to the same directory as the executable
-    std::fs::copy(context.input_file, input_file)?;
+    std::os::unix::fs::symlink(context.input_file, input_file)?;
 
     let mut times = vec![];
     for i in 0..10 {
@@ -451,12 +448,11 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
     output_file.push("output.txt");
 
     info!(
-        "Copying file from: {:?} to {:?}",
+        "Symlinking file from: {:?} to {:?}",
         context.input_file, input_file
     );
 
-    // Copy the input file to the same directory as the executable
-    std::fs::copy(context.input_file, input_file)?;
+    std::os::unix::fs::symlink(context.input_file, input_file)?;
 
     let mut times = vec![];
     for i in 0..10 {
