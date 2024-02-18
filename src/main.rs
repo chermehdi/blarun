@@ -150,6 +150,107 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
     Ok(Verdict::Ac)
 }
 
+fn run_rust(context: &RunContext) -> Result<ExecResult> {
+    let tmp_dir = tempfile::tempdir()?;
+
+    let mut output_path = tmp_dir.path().to_path_buf();
+    output_path.push("sol");
+
+    let mut res = Command::new("/usr/local/bin/rustc")
+        .args(vec![
+            "-O",
+            context.abs_solution().to_str().unwrap(),
+            "-o",
+            output_path.to_str().unwrap(),
+        ])
+        .spawn()?;
+
+    match res.wait() {
+        Ok(status) => {
+            info!("Finished compilation of the target: {output_path:?} with exit code: {status}");
+            if let Some(code) = status.code() {
+                if code != 0 {
+                    return Err(anyhow::anyhow!(
+                        "Failed to compile solution file: none-zero exit code"
+                    ));
+                }
+            }
+        }
+        Err(e) => return Err(anyhow::anyhow!("Failed to compile solution file: {e:?}")),
+    }
+
+    let mut input_file = tmp_dir.path().to_path_buf();
+    input_file.push("input.txt");
+    let mut output_file = tmp_dir.path().to_path_buf();
+    output_file.push("output.txt");
+
+    info!(
+        "Symlinking file from: {:?} to {:?}",
+        context.input_file, input_file
+    );
+
+    std::os::unix::fs::symlink(context.input_file, &input_file)?;
+
+    let mut times = vec![];
+    for i in 0..context.times {
+        debug!("Starting execution #{i}");
+        let start_time = Instant::now();
+        let mut child = Command::new(output_path.to_str().unwrap())
+            .current_dir(&tmp_dir)
+            .spawn()?;
+
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
+                info!(
+                    "Finished execution of the solution with status: {:?}",
+                    result.code()
+                );
+                if let Some(code) = result.code() {
+                    if code != 0 {
+                        return Err(anyhow::anyhow!(
+                            "Failed to run the solution file: none-zero exit code"
+                        ));
+                    }
+                }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
+            }
+        }
+
+        let elapsed = Instant::now() - start_time;
+        debug!("Execution #{i} finished in: {elapsed:?}");
+        times.push(elapsed);
+
+        debug!(
+            "Computing verdict using {output_file:?} and {:?}",
+            context.expected_output
+        );
+        let verdict = compute_verdict(&output_file, context.expected_output)?;
+        if !matches!(verdict, Verdict::Ac) {
+            debug!("Submission is not correct, aborting further runs");
+            return Ok(ExecResult {
+                verdict: Verdict::Wa,
+                times,
+            });
+        }
+    }
+
+    Ok(ExecResult {
+        verdict: Verdict::Ac,
+        times,
+    })
+}
 fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     // let tmp_dir = tempfile::tempdir()?;
     let tmp_dir = PathBuf::from("/tmp/work");
@@ -537,9 +638,12 @@ fn run_file(context: &RunContext) -> Result<ExecResult> {
     source_file.push(context.solution_file);
     match extension.to_str().unwrap() {
         "cpp" => run_cpp(context),
+        "cc" => run_cpp(context),
+        "c" => run_cpp(context),
         "java" => run_java(context),
         "py" => run_python(context),
         "js" => run_node(context),
+        "rs" => run_rust(context),
         _ => Ok(ExecResult {
             verdict: Verdict::UnknownExt,
             times: vec![],
