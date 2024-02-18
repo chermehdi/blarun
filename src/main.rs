@@ -38,6 +38,9 @@ struct Args {
     // How long to let the submission run before declaring it slow
     #[arg(long)]
     timeout_sec: u64,
+
+    #[arg(long, default_value_t = 5)]
+    times_to_run: u32,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -192,7 +195,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     std::os::unix::fs::symlink(context.input_file, &input_file)?;
 
     let mut times = vec![];
-    for i in 0..10 {
+    for i in 0..context.times {
         debug!("Starting execution #{i}");
         let start_time = Instant::now();
         let mut child = Command::new(output_path.to_str().unwrap())
@@ -295,7 +298,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     std::os::unix::fs::symlink(context.input_file, &input_file)?;
 
     let mut times = vec![];
-    for i in 0..10 {
+    for i in 0..context.times {
         debug!("Starting execution run #{i}");
         let start_time = Instant::now();
         let mut child = Command::new("java")
@@ -379,7 +382,7 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
     std::os::unix::fs::symlink(context.input_file, input_file)?;
 
     let mut times = vec![];
-    for i in 0..10 {
+    for i in 0..context.times {
         let start_time = Instant::now();
         let mut child = Command::new("python3")
             .args(vec!["main.py"])
@@ -459,7 +462,7 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
     std::os::unix::fs::symlink(context.input_file, input_file)?;
 
     let mut times = vec![];
-    for i in 0..10 {
+    for i in 0..context.times {
         let start_time = Instant::now();
         let mut child = Command::new("node")
             .args(vec!["main.js"])
@@ -550,6 +553,7 @@ struct RunContext<'a> {
     expected_output: &'a Path,
     solution_file: &'a Path,
     timeout: Duration,
+    times: u32,
     root: &'a Path,
     user: &'a str,
 }
@@ -678,6 +682,7 @@ fn main() {
             solution_file: &path,
             user: user.as_ref(),
             timeout: Duration::from_secs(args.timeout_sec),
+            times: args.times_to_run,
         };
 
         match run_file(&run_context) {
