@@ -38,10 +38,6 @@ struct Args {
     // How long to let the submission run before declaring it slow
     #[arg(long)]
     timeout_sec: u64,
-
-    // Jailer solution location: (nsjail)
-    #[arg(long)]
-    jailer: String,
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -149,12 +145,13 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
 }
 
 fn run_cpp(context: &RunContext) -> Result<ExecResult> {
-    let tmp_dir = tempfile::tempdir()?;
+    // let tmp_dir = tempfile::tempdir()?;
+    let tmp_dir = PathBuf::from("/tmp/work");
 
-    let mut output_path = tmp_dir.path().to_path_buf();
+    let mut output_path = tmp_dir.clone();
     output_path.push("sol");
 
-    let mut res = Command::new("g++")
+    let mut res = Command::new("/usr/bin/g++")
         .args(vec![
             "-Wall",
             "--std=c++17",
@@ -179,9 +176,9 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
         Err(e) => return Err(anyhow::anyhow!("Failed to compile solution file: {e:?}")),
     }
 
-    let mut input_file = tmp_dir.path().to_path_buf();
+    let mut input_file = tmp_dir.clone();
     input_file.push("input.txt");
-    let mut output_file = tmp_dir.path().to_path_buf();
+    let mut output_file = tmp_dir.clone();
     output_file.push("output.txt");
 
     info!(
@@ -194,13 +191,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
     let mut times = vec![];
     for i in 0..10 {
         let start_time = Instant::now();
-        let mut child = Command::new(&context.jailer)
-            .args(vec![
-                "--config",
-                "/etc/blarun/jailer.cfg",
-                "--",
-                output_path.to_str().unwrap(),
-            ])
+        let mut child = Command::new(output_path.to_str().unwrap())
             .current_dir(&tmp_dir)
             .spawn()?;
 
@@ -544,7 +535,6 @@ struct RunContext<'a> {
     input_file: &'a Path,
     expected_output: &'a Path,
     solution_file: &'a Path,
-    jailer: String,
     timeout: Duration,
     root: &'a Path,
     user: &'a str,
@@ -674,7 +664,6 @@ fn main() {
             solution_file: &path,
             user: user.as_ref(),
             timeout: Duration::from_secs(args.timeout_sec),
-            jailer: args.jailer.clone(),
         };
 
         match run_file(&run_context) {
