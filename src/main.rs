@@ -128,7 +128,10 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
     let mut b1 = [0u8; 4096];
     let mut b2 = [0u8; 4096];
 
+    let mut reads = 1;
     loop {
+        debug!("Executing read-loop #{reads}");
+        reads += 1;
         let bytes_read1 = output.read(&mut b1)?;
         let bytes_read2 = expected_output.read(&mut b2)?;
 
@@ -190,6 +193,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..10 {
+        debug!("Starting execution #{i}");
         let start_time = Instant::now();
         let mut child = Command::new(output_path.to_str().unwrap())
             .current_dir(&tmp_dir)
@@ -228,6 +232,10 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
         debug!("Execution #{i} finished in: {elapsed:?}");
         times.push(elapsed);
 
+        debug!(
+            "Computing verdict using {output_file:?} and {:?}",
+            context.expected_output
+        );
         let verdict = compute_verdict(&output_file, context.expected_output)?;
         if !matches!(verdict, Verdict::Ac) {
             debug!("Submission is not correct, aborting further runs");
@@ -288,6 +296,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..10 {
+        debug!("Starting execution run #{i}");
         let start_time = Instant::now();
         let mut child = Command::new("java")
             .args(vec!["Main"])
@@ -327,6 +336,10 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
         debug!("Execution #{i} finished in: {elapsed:?}");
         times.push(elapsed);
 
+        debug!(
+            "Computing verdict using {output_file:?} and {:?}",
+            context.expected_output
+        );
         let verdict = compute_verdict(&output_file, context.expected_output)?;
         if !matches!(verdict, Verdict::Ac) {
             debug!("Submission is not correct, aborting further runs");
@@ -531,6 +544,7 @@ fn run_file(context: &RunContext) -> Result<ExecResult> {
     }
 }
 
+#[derive(Debug)]
 struct RunContext<'a> {
     input_file: &'a Path,
     expected_output: &'a Path,
@@ -679,7 +693,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                info!("Failed {e:?}")
+                info!("Failed to run {run_context:?} with error: {e:?}")
             }
         };
     }
