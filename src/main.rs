@@ -233,10 +233,9 @@ fn run_rust(context: &RunContext) -> Result<ExecResult> {
     })
 }
 fn run_cpp(context: &RunContext) -> Result<ExecResult> {
-    // let tmp_dir = tempfile::tempdir()?;
-    let tmp_dir = PathBuf::from("/tmp/work");
+    let tmp_dir = tempfile::tempdir()?;
 
-    let mut output_path = tmp_dir.clone();
+    let mut output_path = tmp_dir.path().to_path_buf();
     output_path.push("sol");
 
     let mut res = Command::new("/usr/bin/g++")
@@ -264,9 +263,9 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
         Err(e) => return Err(anyhow::anyhow!("Failed to compile solution file: {e:?}")),
     }
 
-    let mut input_file = tmp_dir.clone();
+    let mut input_file = tmp_dir.path().to_path_buf();
     input_file.push("input.txt");
-    let mut output_file = tmp_dir.clone();
+    let mut output_file = tmp_dir.path().to_path_buf();
     output_file.push("output.txt");
 
     info!(
