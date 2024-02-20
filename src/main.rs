@@ -120,33 +120,14 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
     debug!("Comparing output {output:?} vs {expected_output:?}");
     let mut output = File::open(output)?;
     let mut expected_output = File::open(expected_output)?;
-    let output_len = output.metadata()?.len();
-    let expected_output_len = expected_output.metadata()?.len();
-    if expected_output_len != output_len {
-        debug!("Output size is different: expected {expected_output_len}, Got {output_len}");
+    let mut output_str = String::new();
+    let mut ex_output_str = String::new();
+    output.read_to_string(&mut output_str)?;
+    expected_output.read_to_string(&mut ex_output_str)?;
+    if output_str.trim() != ex_output_str.trim() {
+        info!("Solution comparison failed, output for the solution is: {output_str}");
         return Ok(Verdict::Wa);
     }
-
-    // TODO: depending on the size of the input, we might want to make these buffers larger.
-    let mut b1 = [0u8; 4096];
-    let mut b2 = [0u8; 4096];
-
-    let mut reads = 1;
-    loop {
-        debug!("Executing read-loop #{reads}");
-        reads += 1;
-        let bytes_read1 = output.read(&mut b1)?;
-        let bytes_read2 = expected_output.read(&mut b2)?;
-
-        if bytes_read1 != bytes_read2 || b1[..bytes_read1] != b2[..bytes_read2] {
-            return Ok(Verdict::Wa);
-        }
-
-        if bytes_read1 == 0 {
-            break;
-        }
-    }
-
     Ok(Verdict::Ac)
 }
 
@@ -460,6 +441,87 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
     })
 }
 
+fn run_php(context: &RunContext) -> Result<ExecResult> {
+    let tmp_dir = tempfile::tempdir()?;
+
+    let mut src_path = tmp_dir.path().to_path_buf();
+    src_path.push("sol.php");
+
+    // Copy the source file to the compilation directory
+    std::fs::copy(context.abs_solution(), &src_path)?;
+
+    let mut input_file = tmp_dir.path().to_path_buf();
+    input_file.push("input.txt");
+
+    let mut output_file = tmp_dir.path().to_path_buf();
+    output_file.push("output.txt");
+
+    info!(
+        "Symlinking file from: {:?} to {:?}",
+        context.input_file, input_file
+    );
+
+    std::os::unix::fs::symlink(context.input_file, input_file)?;
+
+    let mut times = vec![];
+    for i in 0..context.times {
+        let start_time = Instant::now();
+        let mut child = Command::new("php")
+            .args(vec!["sol.php"])
+            .current_dir(&tmp_dir)
+            .spawn()?;
+
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
+                info!(
+                    "Finished execution of the solution with status: {:?}",
+                    result.code()
+                );
+                if let Some(code) = result.code() {
+                    if code != 0 {
+                        return Err(anyhow::anyhow!(
+                            "Failed to run the solution file: none-zero exit code"
+                        ));
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("Failed to extract the solution exit code"));
+                }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
+            }
+        }
+
+        let elapsed = Instant::now() - start_time;
+        debug!("Execution #{i} finished in: {elapsed:?}");
+        times.push(elapsed);
+
+        let verdict = compute_verdict(&output_file, context.expected_output)?;
+        // Exit early
+        if !matches!(verdict, Verdict::Ac) {
+            debug!("Submission is not correct, aborting further runs");
+            return Ok(ExecResult {
+                verdict: Verdict::Wa,
+                times,
+            });
+        }
+    }
+
+    Ok(ExecResult {
+        verdict: Verdict::Ac,
+        times,
+    })
+}
 fn run_python(context: &RunContext) -> Result<ExecResult> {
     let tmp_dir = tempfile::tempdir()?;
 
@@ -644,6 +706,7 @@ fn run_file(context: &RunContext) -> Result<ExecResult> {
         "py" => run_python(context),
         "js" => run_node(context),
         "rs" => run_rust(context),
+        "php" => run_php(context),
         _ => Ok(ExecResult {
             verdict: Verdict::UnknownExt,
             times: vec![],
