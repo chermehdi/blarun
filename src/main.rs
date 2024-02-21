@@ -41,6 +41,23 @@ struct Args {
 
     #[arg(long, default_value_t = 5)]
     times_to_run: u32,
+
+    #[arg(long)]
+    cgroup_path: String,
+}
+
+// Move the pid to the cgroup
+fn move_to_cgroup(pid: u32, context: &RunContext) -> Result<()> {
+    let procs_file_path = format!("{}/cgroup.procs", context.cgroup_path);
+    let pid_string = pid.to_string();
+
+    std::fs::OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(procs_file_path)?
+        .write_all(pid_string.as_bytes())?;
+
+    Ok(())
 }
 
 // Extract the changed files in a repository between `from_commit` and the current head commit.
@@ -180,6 +197,13 @@ fn run_rust(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -283,6 +307,13 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -387,6 +418,13 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -470,6 +508,14 @@ fn run_php(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
+
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -551,6 +597,13 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -631,6 +684,13 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -729,6 +789,14 @@ fn run_golang(context: &RunContext) -> Result<ExecResult> {
             .current_dir(&tmp_dir)
             .spawn()?;
 
+        let pid = child.id();
+        debug!("The current started process has pid: {pid}");
+        move_to_cgroup(pid, context)?;
+        debug!(
+            "Moved process to cgroup {} successfully",
+            context.cgroup_path
+        );
+
         match child.wait_timeout(context.timeout) {
             Ok(Some(result)) => {
                 info!(
@@ -782,7 +850,6 @@ fn run_golang(context: &RunContext) -> Result<ExecResult> {
     })
 }
 
-
 fn extract_language(context: &RunContext) -> String {
     context
         .solution_file
@@ -823,6 +890,7 @@ struct RunContext<'a> {
     expected_output: &'a Path,
     solution_file: &'a Path,
     timeout: Duration,
+    cgroup_path: String,
     times: u32,
     root: &'a Path,
     user: &'a str,
@@ -953,6 +1021,7 @@ fn main() {
             user: user.as_ref(),
             timeout: Duration::from_secs(args.timeout_sec),
             times: args.times_to_run,
+            cgroup_path: args.cgroup_path.clone(),
         };
 
         match run_file(&run_context) {
