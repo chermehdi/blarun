@@ -680,6 +680,109 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
     })
 }
 
+fn run_golang(context: &RunContext) -> Result<ExecResult> {
+    let tmp_dir = tempfile::tempdir()?;
+
+    let mut output_path = tmp_dir.path().to_path_buf();
+    output_path.push("sol");
+
+    let mut res = Command::new("/usr/local/bin/go")
+        .args(vec![
+            "build",
+            "-o",
+            output_path.to_str().unwrap(),
+            context.abs_solution().to_str().unwrap(),
+        ])
+        .spawn()?;
+
+    match res.wait() {
+        Ok(status) => {
+            info!("Finished compilation of the target: {output_path:?} with exit code: {status}");
+            if let Some(code) = status.code() {
+                if code != 0 {
+                    return Err(anyhow::anyhow!(
+                        "Failed to compile solution file: none-zero exit code"
+                    ));
+                }
+            }
+        }
+        Err(e) => return Err(anyhow::anyhow!("Failed to compile solution file: {e:?}")),
+    }
+
+    let mut input_file = tmp_dir.path().to_path_buf();
+    input_file.push("input.txt");
+    let mut output_file = tmp_dir.path().to_path_buf();
+    output_file.push("output.txt");
+
+    info!(
+        "Symlinking file from: {:?} to {:?}",
+        context.input_file, input_file
+    );
+
+    std::os::unix::fs::symlink(context.input_file, &input_file)?;
+
+    let mut times = vec![];
+    for i in 0..context.times {
+        debug!("Starting execution #{i}");
+        let start_time = Instant::now();
+        let mut child = Command::new(output_path.to_str().unwrap())
+            .current_dir(&tmp_dir)
+            .spawn()?;
+
+        match child.wait_timeout(context.timeout) {
+            Ok(Some(result)) => {
+                info!(
+                    "Finished execution of the solution with status: {:?}",
+                    result.code()
+                );
+                if let Some(code) = result.code() {
+                    if code != 0 {
+                        return Err(anyhow::anyhow!(
+                            "Failed to run the solution file: none-zero exit code"
+                        ));
+                    }
+                }
+            }
+            Ok(None) => {
+                debug!("Child process timed out");
+                child.kill().unwrap();
+                let code = child.wait()?.code();
+                debug!("Killed with exit code: {code:?}");
+                return Ok(ExecResult {
+                    verdict: Verdict::Tle,
+                    times,
+                });
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to run the solution file: {e:?}"));
+            }
+        }
+
+        let elapsed = Instant::now() - start_time;
+        debug!("Execution #{i} finished in: {elapsed:?}");
+        times.push(elapsed);
+
+        debug!(
+            "Computing verdict using {output_file:?} and {:?}",
+            context.expected_output
+        );
+        let verdict = compute_verdict(&output_file, context.expected_output)?;
+        if !matches!(verdict, Verdict::Ac) {
+            debug!("Submission is not correct, aborting further runs");
+            return Ok(ExecResult {
+                verdict: Verdict::Wa,
+                times,
+            });
+        }
+    }
+
+    Ok(ExecResult {
+        verdict: Verdict::Ac,
+        times,
+    })
+}
+
+
 fn extract_language(context: &RunContext) -> String {
     context
         .solution_file
@@ -706,6 +809,7 @@ fn run_file(context: &RunContext) -> Result<ExecResult> {
         "js" => run_node(context),
         "rs" => run_rust(context),
         "php" => run_php(context),
+        "go" => run_golang(context),
         _ => Ok(ExecResult {
             verdict: Verdict::UnknownExt,
             times: vec![],
