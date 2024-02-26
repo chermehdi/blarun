@@ -68,7 +68,7 @@ fn extract_changed(repo: &Repository, from_commit: &str) -> Result<Vec<PathBuf>>
         .collect())
 }
 
-// Recursively list all the fiels in the `root` directory
+// Recursively list all the files in the `root` directory
 fn list_paths(root: &std::path::Path) -> Result<Vec<PathBuf>> {
     let mut result = vec![];
     for entry in std::fs::read_dir(root)? {
@@ -131,6 +131,12 @@ fn compute_verdict(output: &Path, expected_output: &Path) -> Result<Verdict> {
     Ok(Verdict::Ac)
 }
 
+fn clear_disk_cache() {
+    let mut drop_caches_file = File::create("/proc/sys/vm/drop_caches").unwrap();
+    drop_caches_file.write_all(b"3")?;
+    drop_caches_file.sync_all()?;
+}
+
 fn run_rust(context: &RunContext) -> Result<ExecResult> {
     let tmp_dir = tempfile::tempdir()?;
 
@@ -174,6 +180,7 @@ fn run_rust(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         debug!("Starting execution #{i}");
         let start_time = Instant::now();
         let mut child = Command::new(output_path.to_str().unwrap())
@@ -237,7 +244,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
 
     let mut output_path = tmp_dir.path().to_path_buf();
     output_path.push("sol");
-
+    
     let mut res = Command::new("/usr/bin/g++")
         .args(vec![
             "-Wall",
@@ -277,6 +284,7 @@ fn run_cpp(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         debug!("Starting execution #{i}");
         let start_time = Instant::now();
         let mut child = Command::new(output_path.to_str().unwrap())
@@ -380,6 +388,7 @@ fn run_java(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         debug!("Starting execution run #{i}");
         let start_time = Instant::now();
         let mut child = Command::new("java")
@@ -464,6 +473,7 @@ fn run_php(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         let start_time = Instant::now();
         let mut child = Command::new("php")
             .args(vec!["sol.php"])
@@ -545,6 +555,7 @@ fn run_python(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         let start_time = Instant::now();
         let mut child = Command::new("python3")
             .args(vec!["main.py"])
@@ -625,6 +636,7 @@ fn run_node(context: &RunContext) -> Result<ExecResult> {
 
     let mut times = vec![];
     for i in 0..context.times {
+        clear_disk_cache();
         let start_time = Instant::now();
         let mut child = Command::new("node")
             .args(vec!["main.js"])
